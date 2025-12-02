@@ -14,6 +14,14 @@ enum RouteEditorMode: Equatable {
     case edit(FavoriteRoute)
 }
 
+// Selection state for map placement
+enum MapPlacementSelection: Equatable {
+    case none
+    case start
+    case end
+    case waypoint(UUID)
+}
+
 struct RouteEditorView: View {
     @Environment(\.dismiss) private var dismiss
     
@@ -51,6 +59,9 @@ struct RouteEditorView: View {
     
     // Speed
     @State private var speedKmh: Double = 50
+    
+    // Map placement selection
+    @State private var mapPlacementSelection: MapPlacementSelection = .none
     
     private var isEditMode: Bool {
         if case .edit = mode { return true }
@@ -108,30 +119,47 @@ struct RouteEditorView: View {
                         
                         // Start Location
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Label("Start Location", systemImage: "circle.fill")
-                                    .font(.headline)
-                                    .foregroundStyle(.green)
-                                
-                                Spacer()
-                                
-                                if startCoordinate != nil {
-                                    Image(systemName: "checkmark.circle.fill")
+                            Button(action: {
+                                mapPlacementSelection = mapPlacementSelection == .start ? .none : .start
+                            }) {
+                                HStack {
+                                    Label("Start Location", systemImage: "circle.fill")
+                                        .font(.headline)
                                         .foregroundStyle(.green)
+                                    
+                                    Spacer()
+                                    
+                                    if mapPlacementSelection == .start {
+                                        Label("Click map to place", systemImage: "hand.tap")
+                                            .font(.caption)
+                                            .foregroundStyle(.blue)
+                                    } else if startCoordinate != nil {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
                                 }
+                                .padding(8)
+                                .background(mapPlacementSelection == .start ? Color.green.opacity(0.15) : Color.clear)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(mapPlacementSelection == .start ? Color.green : Color.clear, lineWidth: 2)
+                                )
                             }
+                            .buttonStyle(.plain)
                             
                             RouteLocationSearchField(
                                 searchText: $startSearchText,
                                 searchResults: $startSearchResults,
                                 isSearching: $isSearchingStart,
-                                placeholder: "Search start location...",
+                                placeholder: "Search or click label then map...",
                                 onSelect: { item in
                                     selectedStartItem = item
                                     startSearchText = item.name ?? ""
                                     startName = item.name ?? "Unknown"
                                     startCoordinate = item.placemark.coordinate
                                     calculatedRoute = false
+                                    mapPlacementSelection = .none
                                 }
                             )
                         }
@@ -159,11 +187,22 @@ struct RouteEditorView: View {
                                     .padding(.vertical, 8)
                             } else {
                                 VStack(spacing: 12) {
-                                    ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, _ in
+                                    ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, waypoint in
                                         WaypointRow(
                                             waypoint: $waypoints[index],
                                             index: index + 1,
+                                            isSelectedForPlacement: mapPlacementSelection == .waypoint(waypoint.id),
+                                            onSelectForPlacement: {
+                                                if mapPlacementSelection == .waypoint(waypoint.id) {
+                                                    mapPlacementSelection = .none
+                                                } else {
+                                                    mapPlacementSelection = .waypoint(waypoint.id)
+                                                }
+                                            },
                                             onDelete: {
+                                                if mapPlacementSelection == .waypoint(waypoint.id) {
+                                                    mapPlacementSelection = .none
+                                                }
                                                 waypoints.remove(at: index)
                                                 calculatedRoute = false
                                             }
@@ -175,30 +214,47 @@ struct RouteEditorView: View {
                         
                         // End Location
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Label("End Location", systemImage: "mappin.circle.fill")
-                                    .font(.headline)
-                                    .foregroundStyle(.red)
-                                
-                                Spacer()
-                                
-                                if endCoordinate != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
+                            Button(action: {
+                                mapPlacementSelection = mapPlacementSelection == .end ? .none : .end
+                            }) {
+                                HStack {
+                                    Label("End Location", systemImage: "mappin.circle.fill")
+                                        .font(.headline)
+                                        .foregroundStyle(.red)
+                                    
+                                    Spacer()
+                                    
+                                    if mapPlacementSelection == .end {
+                                        Label("Click map to place", systemImage: "hand.tap")
+                                            .font(.caption)
+                                            .foregroundStyle(.blue)
+                                    } else if endCoordinate != nil {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
                                 }
+                                .padding(8)
+                                .background(mapPlacementSelection == .end ? Color.red.opacity(0.15) : Color.clear)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(mapPlacementSelection == .end ? Color.red : Color.clear, lineWidth: 2)
+                                )
                             }
+                            .buttonStyle(.plain)
                             
                             RouteLocationSearchField(
                                 searchText: $endSearchText,
                                 searchResults: $endSearchResults,
                                 isSearching: $isSearchingEnd,
-                                placeholder: "Search end location...",
+                                placeholder: "Search or click label then map...",
                                 onSelect: { item in
                                     selectedEndItem = item
                                     endSearchText = item.name ?? ""
                                     endName = item.name ?? "Unknown"
                                     endCoordinate = item.placemark.coordinate
                                     calculatedRoute = false
+                                    mapPlacementSelection = .none
                                 }
                             )
                         }
@@ -303,7 +359,12 @@ struct RouteEditorView: View {
                 startCoordinate: startCoordinate,
                 endCoordinate: endCoordinate,
                 waypoints: waypoints.compactMap { $0.coordinate },
-                routePolyline: routeSimulator.displayPolyline
+                waypointIds: waypoints.map { $0.id },
+                routePolyline: routeSimulator.displayPolyline,
+                placementSelection: $mapPlacementSelection,
+                onMapTap: { coordinate in
+                    handleMapTap(coordinate)
+                }
             )
             .frame(minWidth: 400)
         }
@@ -330,6 +391,37 @@ struct RouteEditorView: View {
     private func addWaypoint() {
         waypoints.append(EditableWaypoint())
         calculatedRoute = false
+    }
+    
+    private func handleMapTap(_ coordinate: CLLocationCoordinate2D) {
+        switch mapPlacementSelection {
+        case .none:
+            break
+        case .start:
+            startCoordinate = coordinate
+            startName = formatCoordinate(coordinate)
+            startSearchText = startName
+            calculatedRoute = false
+            mapPlacementSelection = .none
+        case .end:
+            endCoordinate = coordinate
+            endName = formatCoordinate(coordinate)
+            endSearchText = endName
+            calculatedRoute = false
+            mapPlacementSelection = .none
+        case .waypoint(let id):
+            if let index = waypoints.firstIndex(where: { $0.id == id }) {
+                waypoints[index].coordinate = coordinate
+                waypoints[index].name = formatCoordinate(coordinate)
+                waypoints[index].searchText = waypoints[index].name
+                calculatedRoute = false
+            }
+            mapPlacementSelection = .none
+        }
+    }
+    
+    private func formatCoordinate(_ coordinate: CLLocationCoordinate2D) -> String {
+        String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
     }
     
     private func calculateRoute() {
@@ -577,6 +669,8 @@ struct RouteLocationSearchField: View {
 struct WaypointRow: View {
     @Binding var waypoint: EditableWaypoint
     let index: Int
+    var isSelectedForPlacement: Bool = false
+    var onSelectForPlacement: (() -> Void)? = nil
     let onDelete: () -> Void
     
     @State private var searchResults: [MKMapItem] = []
@@ -585,35 +679,34 @@ struct WaypointRow: View {
     @State private var hasSearched: Bool = false
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Index badge
-            ZStack {
-                Circle()
-                    .fill(.orange.opacity(0.2))
-                    .frame(width: 28, height: 28)
-                Text("\(index)")
-                    .font(.callout)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.orange)
-            }
-            
-            // Search field
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    TextField("Search waypoint...", text: $waypoint.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit {
-                            performSearch()
-                        }
-                    
-                    Button(action: performSearch) {
-                        Image(systemName: "magnifyingglass")
+        VStack(alignment: .leading, spacing: 8) {
+            // Clickable header for map placement
+            Button(action: {
+                onSelectForPlacement?()
+            }) {
+                HStack(spacing: 12) {
+                    // Index badge
+                    ZStack {
+                        Circle()
+                            .fill(isSelectedForPlacement ? .orange : .orange.opacity(0.2))
+                            .frame(width: 28, height: 28)
+                        Text("\(index)")
+                            .font(.callout)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(isSelectedForPlacement ? .white : .orange)
                     }
-                    .disabled(waypoint.searchText.isEmpty || isSearching)
                     
-                    if isSearching {
-                        ProgressView()
-                            .scaleEffect(0.7)
+                    Text("Waypoint \(index)")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.orange)
+                    
+                    Spacer()
+                    
+                    if isSelectedForPlacement {
+                        Label("Click map to place", systemImage: "hand.tap")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
                     } else if waypoint.isValid {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -626,63 +719,90 @@ struct WaypointRow: View {
                     .buttonStyle(.plain)
                     .help("Remove waypoint")
                 }
+                .padding(8)
+                .background(isSelectedForPlacement ? Color.orange.opacity(0.15) : Color.clear)
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isSelectedForPlacement ? Color.orange : Color.clear, lineWidth: 2)
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Search field
+            HStack {
+                TextField("Search or click header then map...", text: $waypoint.searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        performSearch()
+                    }
                 
-                if let error = searchError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                Button(action: performSearch) {
+                    Image(systemName: "magnifyingglass")
                 }
+                .disabled(waypoint.searchText.isEmpty || isSearching)
                 
-                if hasSearched && searchResults.isEmpty && !isSearching && searchError == nil {
-                    Text("No results found")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .italic()
+                if isSearching {
+                    ProgressView()
+                        .scaleEffect(0.7)
                 }
-                
-                if !searchResults.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(Array(searchResults.prefix(5)), id: \.self) { item in
-                            Button(action: {
-                                waypoint.name = item.name ?? "Unknown"
-                                waypoint.searchText = item.name ?? ""
-                                waypoint.coordinate = item.placemark.coordinate
-                                searchResults = []
-                                hasSearched = false
-                            }) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.name ?? "Unknown")
-                                            .font(.body)
-                                            .foregroundStyle(.primary)
-                                        
-                                        if let address = formatAddress(item.placemark) {
-                                            Text(address)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
+            }
+            
+            if let error = searchError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            
+            if hasSearched && searchResults.isEmpty && !isSearching && searchError == nil {
+                Text("No results found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .italic()
+            }
+            
+            if !searchResults.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchResults.prefix(5)), id: \.self) { item in
+                        Button(action: {
+                            waypoint.name = item.name ?? "Unknown"
+                            waypoint.searchText = item.name ?? ""
+                            waypoint.coordinate = item.placemark.coordinate
+                            searchResults = []
+                            hasSearched = false
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name ?? "Unknown")
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                    
+                                    if let address = formatAddress(item.placemark) {
+                                        Text(address)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
                                     }
-                                    Spacer()
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
+                                Spacer()
                             }
-                            .buttonStyle(.plain)
-                            
-                            if item != searchResults.prefix(5).last {
-                                Divider()
-                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if item != searchResults.prefix(5).last {
+                            Divider()
                         }
                     }
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
                 }
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
             }
         }
         .padding()
@@ -738,48 +858,86 @@ struct RoutePreviewMap: View {
     let startCoordinate: CLLocationCoordinate2D?
     let endCoordinate: CLLocationCoordinate2D?
     let waypoints: [CLLocationCoordinate2D]
+    var waypointIds: [UUID] = []
     let routePolyline: MKPolyline?
+    @Binding var placementSelection: MapPlacementSelection
+    var onMapTap: ((CLLocationCoordinate2D) -> Void)?
     
     @State private var cameraPosition: MapCameraPosition = .automatic
     
+    private var isPlacementMode: Bool {
+        placementSelection != .none
+    }
+    
+    private var placementColor: Color {
+        switch placementSelection {
+        case .none: return .clear
+        case .start: return .green
+        case .end: return .red
+        case .waypoint: return .orange
+        }
+    }
+    
     var body: some View {
-        Map(position: $cameraPosition) {
-            // Start marker
-            if let start = startCoordinate {
-                Marker("Start", coordinate: start)
-                    .tint(.green)
-            }
-            
-            // Waypoint markers
-            ForEach(Array(waypoints.enumerated()), id: \.offset) { index, coord in
-                Annotation("Stop \(index + 1)", coordinate: coord) {
-                    ZStack {
-                        Circle()
-                            .fill(.orange)
-                            .frame(width: 24, height: 24)
-                        Text("\(index + 1)")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.white)
+        MapReader { proxy in
+            Map(position: $cameraPosition) {
+                // Start marker
+                if let start = startCoordinate {
+                    Marker("Start", coordinate: start)
+                        .tint(.green)
+                }
+                
+                // Waypoint markers
+                ForEach(Array(waypoints.enumerated()), id: \.offset) { index, coord in
+                    Annotation("Stop \(index + 1)", coordinate: coord) {
+                        ZStack {
+                            Circle()
+                                .fill(.orange)
+                                .frame(width: 24, height: 24)
+                            Text("\(index + 1)")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.white)
+                        }
                     }
                 }
+                
+                // End marker
+                if let end = endCoordinate {
+                    Marker("End", coordinate: end)
+                        .tint(.red)
+                }
+                
+                // Route polyline
+                if let polyline = routePolyline {
+                    MapPolyline(polyline)
+                        .stroke(.blue, lineWidth: 4)
+                }
             }
-            
-            // End marker
-            if let end = endCoordinate {
-                Marker("End", coordinate: end)
-                    .tint(.red)
-            }
-            
-            // Route polyline
-            if let polyline = routePolyline {
-                MapPolyline(polyline)
-                    .stroke(.blue, lineWidth: 4)
+            .mapStyle(.standard)
+            .onTapGesture { screenPoint in
+                if isPlacementMode, let coordinate = proxy.convert(screenPoint, from: .local) {
+                    onMapTap?(coordinate)
+                }
             }
         }
-        .mapStyle(.standard)
+        .overlay(alignment: .top) {
+            if isPlacementMode {
+                HStack {
+                    Image(systemName: "hand.tap")
+                    Text("Click on the map to place the pin")
+                }
+                .font(.callout)
+                .fontWeight(.medium)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(placementColor.opacity(0.9), in: Capsule())
+                .padding(.top, 12)
+            }
+        }
         .overlay(alignment: .topLeading) {
-            if startCoordinate == nil && endCoordinate == nil {
+            if startCoordinate == nil && endCoordinate == nil && !isPlacementMode {
                 VStack {
                     Image(systemName: "map")
                         .font(.largeTitle)
@@ -790,6 +948,13 @@ struct RoutePreviewMap: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.ultraThinMaterial)
+            }
+        }
+        .overlay {
+            if isPlacementMode {
+                RoundedRectangle(cornerRadius: 0)
+                    .stroke(placementColor, lineWidth: 4)
+                    .allowsHitTesting(false)
             }
         }
         .onChange(of: routePolyline) { _, newPolyline in
