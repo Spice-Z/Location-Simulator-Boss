@@ -72,20 +72,20 @@ struct LocationMapView: View {
                             .tint(.red)
                     }
                     
-                    // Route polyline
-                    if let route = routeSimulator.route {
-                        MapPolyline(route.polyline)
+                    // Route polyline (supports both regular routes and waypoint routes)
+                    if let polyline = routeSimulator.displayPolyline {
+                        MapPolyline(polyline)
                             .stroke(.blue, lineWidth: 5)
                     }
                     
                     // Start marker (only when route exists)
-                    if routeSimulator.route != nil, let start = routeSimulator.startLocation {
+                    if routeSimulator.hasRoute, let start = routeSimulator.startLocation {
                         Marker("Start", coordinate: start.placemark.coordinate)
                             .tint(.green)
                     }
                     
                     // End marker (only when route exists)
-                    if routeSimulator.route != nil, let end = routeSimulator.endLocation {
+                    if routeSimulator.hasRoute, let end = routeSimulator.endLocation {
                         Marker("End", coordinate: end.placemark.coordinate)
                             .tint(.red)
                     }
@@ -234,18 +234,12 @@ struct LocationMapView: View {
         }
         .onChange(of: routeSimulator.route) { _, newRoute in
             if let route = newRoute {
-                // Fit map to show the entire route
-                let rect = route.polyline.boundingMapRect
-                let region = MKCoordinateRegion(rect)
-                // Add some padding by increasing the span
-                let paddedRegion = MKCoordinateRegion(
-                    center: region.center,
-                    span: MKCoordinateSpan(
-                        latitudeDelta: region.span.latitudeDelta * 1.3,
-                        longitudeDelta: region.span.longitudeDelta * 1.3
-                    )
-                )
-                cameraPosition = .region(paddedRegion)
+                fitMapToPolyline(route.polyline)
+            }
+        }
+        .onChange(of: routeSimulator.combinedPolyline) { _, newPolyline in
+            if let polyline = newPolyline {
+                fitMapToPolyline(polyline)
             }
         }
     }
@@ -305,6 +299,20 @@ struct LocationMapView: View {
         routeSimulator.resumeSimulation { coordinate in
             onLocationSelected(coordinate)
         }
+    }
+    
+    private func fitMapToPolyline(_ polyline: MKPolyline) {
+        let rect = polyline.boundingMapRect
+        let region = MKCoordinateRegion(rect)
+        // Add some padding by increasing the span
+        let paddedRegion = MKCoordinateRegion(
+            center: region.center,
+            span: MKCoordinateSpan(
+                latitudeDelta: region.span.latitudeDelta * 1.3,
+                longitudeDelta: region.span.longitudeDelta * 1.3
+            )
+        )
+        cameraPosition = .region(paddedRegion)
     }
 }
 

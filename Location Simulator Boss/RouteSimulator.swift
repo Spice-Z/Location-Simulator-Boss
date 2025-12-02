@@ -33,7 +33,7 @@ class RouteSimulator {
     }
     
     var hasRoute: Bool {
-        route != nil && !routeCoordinates.isEmpty
+        (route != nil || combinedPolyline != nil) && !routeCoordinates.isEmpty
     }
     
     /// True if simulation can be resumed (paused mid-way)
@@ -200,6 +200,9 @@ class RouteSimulator {
         // Clear route but keep currentLocation as the final position
         route = nil
         routeCoordinates = []
+        combinedPolyline = nil
+        combinedDistance = 0
+        combinedTravelTime = 0
         startLocation = nil
         endLocation = nil
         currentIndex = 0
@@ -214,6 +217,9 @@ class RouteSimulator {
         isPaused = false
         route = nil
         routeCoordinates = []
+        combinedPolyline = nil
+        combinedDistance = 0
+        combinedTravelTime = 0
         startLocation = nil
         endLocation = nil
         currentLocation = nil
@@ -235,7 +241,128 @@ class RouteSimulator {
         self.startLocation = startItem
         self.endLocation = endItem
         
-        // Calculate the route
+        // If there are waypoints, calculate route through them
+        if !favorite.waypoints.isEmpty {
+            return await calculateRouteWithWaypoints(favorite.waypoints)
+        }
+        
+        // Calculate the direct route
         return await calculateRoute()
+    }
+    
+    /// Calculate a route that goes through all waypoints in order
+    func calculateRouteWithWaypoints(_ waypoints: [Waypoint]) async -> Bool {
+        guard let start = startLocation, let end = endLocation else { return false }
+        
+        // Build list of all points: start -> waypoints -> end
+        var allPoints: [MKMapItem] = [start]
+        
+        for waypoint in waypoints {
+            let placemark = MKPlacemark(coordinate: waypoint.coordinate)
+            let item = MKMapItem(placemark: placemark)
+            item.name = waypoint.name
+            allPoints.append(item)
+        }
+        
+        allPoints.append(end)
+        
+        // Calculate routes between each consecutive pair of points
+        var allCoordinates: [CLLocationCoordinate2D] = []
+        var totalDistance: Double = 0
+        var totalTime: TimeInterval = 0
+        var combinedPolylinePoints: [CLLocationCoordinate2D] = []
+        
+        for i in 0..<(allPoints.count - 1) {
+            let segmentStart = allPoints[i]
+            let segmentEnd = allPoints[i + 1]
+            
+            let request = MKDirections.Request()
+            request.source = segmentStart
+            request.destination = segmentEnd
+            request.transportType = .automobile
+            request.requestsAlternateRoutes = false
+            
+            let directions = MKDirections(request: request)
+            
+            do {
+                let response = try await directions.calculate()
+                
+                if let segmentRoute = response.routes.first {
+                    // Extract coordinates from this segment
+                    let segmentCoords = extractCoordinates(from: segmentRoute.polyline)
+                    
+                    // Avoid duplicating the connecting point
+                    if !allCoordinates.isEmpty && !segmentCoords.isEmpty {
+                        allCoordinates.append(contentsOf: segmentCoords.dropFirst())
+                    } else {
+                        allCoordinates.append(contentsOf: segmentCoords)
+                    }
+                    
+                    // Accumulate polyline points for display
+                    let pointCount = segmentRoute.polyline.pointCount
+                    var coords = [CLLocationCoordinate2D](repeating: CLLocationCoordinate2D(), count: pointCount)
+                    segmentRoute.polyline.getCoordinates(&coords, range: NSRange(location: 0, length: pointCount))
+                    
+                    if !combinedPolylinePoints.isEmpty && !coords.isEmpty {
+                        combinedPolylinePoints.append(contentsOf: coords.dropFirst())
+                    } else {
+                        combinedPolylinePoints.append(contentsOf: coords)
+                    }
+                    
+                    totalDistance += segmentRoute.distance
+                    totalTime += segmentRoute.expectedTravelTime
+                }
+            } catch {
+                print("Route calculation failed for segment \(i): \(error)")
+                return false
+            }
+        }
+        
+        // Create a combined route for display
+        if !combinedPolylinePoints.isEmpty {
+            let combinedPolyline = MKPolyline(coordinates: combinedPolylinePoints, count: combinedPolylinePoints.count)
+            
+            // Create a pseudo-route with the combined polyline
+            // Note: We store the polyline directly and use it for display
+            self.route = nil // We'll handle display separately
+            self.routeCoordinates = allCoordinates
+            self.combinedPolyline = combinedPolyline
+            self.combinedDistance = totalDistance
+            self.combinedTravelTime = totalTime
+            self.progress = 0.0
+            self.currentIndex = 0
+            if let first = allCoordinates.first {
+                self.currentLocation = first
+            }
+            return true
+        }
+        
+        return false
+    }
+    
+    // For waypoint routes, we store the combined polyline separately
+    var combinedPolyline: MKPolyline?
+    var combinedDistance: Double = 0
+    var combinedTravelTime: TimeInterval = 0
+    
+    /// Returns the polyline to display on map (either from route or combined waypoint route)
+    var displayPolyline: MKPolyline? {
+        combinedPolyline ?? route?.polyline
+    }
+    
+    /// Returns the distance to display (either from route or combined)
+    var displayDistance: Double {
+        if combinedPolyline != nil {
+            return combinedDistance
+        }
+        return route?.distance ?? 0
+    }
+    
+    /// Returns the travel time to display (either from route or combined)
+    var displayTravelTime: TimeInterval {
+        if combinedPolyline != nil {
+            return combinedTravelTime
+        }
+        return route?.expectedTravelTime ?? 0
     }
 }

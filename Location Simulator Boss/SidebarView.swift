@@ -98,9 +98,20 @@ struct FavoriteRouteRow: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(route.name)
-                    .font(.body)
-                    .fontWeight(.medium)
+                HStack {
+                    Text(route.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+                    
+                    if !route.waypoints.isEmpty {
+                        Text("+\(route.waypoints.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.orange, in: Capsule())
+                    }
+                }
                 
                 HStack(spacing: 4) {
                     Image(systemName: "circle.fill")
@@ -111,6 +122,19 @@ struct FavoriteRouteRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                
+                // Show waypoints if any
+                ForEach(route.waypoints) { waypoint in
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 6))
+                            .foregroundStyle(.orange)
+                        Text(waypoint.name)
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
                 
                 HStack(spacing: 4) {
                     Image(systemName: "mappin.circle.fill")

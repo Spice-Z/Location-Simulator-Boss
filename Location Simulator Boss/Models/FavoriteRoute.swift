@@ -8,6 +8,24 @@
 import Foundation
 import CoreLocation
 
+struct Waypoint: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String
+    var latitude: Double
+    var longitude: Double
+    
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+    
+    init(id: UUID = UUID(), name: String, coordinate: CLLocationCoordinate2D) {
+        self.id = id
+        self.name = name
+        self.latitude = coordinate.latitude
+        self.longitude = coordinate.longitude
+    }
+}
+
 struct FavoriteRoute: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -17,6 +35,7 @@ struct FavoriteRoute: Identifiable, Codable, Hashable {
     var endName: String
     var endLatitude: Double
     var endLongitude: Double
+    var waypoints: [Waypoint]
     let createdAt: Date
     
     var startCoordinate: CLLocationCoordinate2D {
@@ -33,7 +52,8 @@ struct FavoriteRoute: Identifiable, Codable, Hashable {
         startName: String,
         startCoordinate: CLLocationCoordinate2D,
         endName: String,
-        endCoordinate: CLLocationCoordinate2D
+        endCoordinate: CLLocationCoordinate2D,
+        waypoints: [Waypoint] = []
     ) {
         self.id = id
         self.name = name
@@ -43,6 +63,7 @@ struct FavoriteRoute: Identifiable, Codable, Hashable {
         self.endName = endName
         self.endLatitude = endCoordinate.latitude
         self.endLongitude = endCoordinate.longitude
+        self.waypoints = waypoints
         self.createdAt = Date()
     }
 }
