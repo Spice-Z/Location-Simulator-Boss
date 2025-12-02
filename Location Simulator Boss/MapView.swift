@@ -22,56 +22,123 @@ struct LocationMapView: View {
     @State private var isSearching: Bool = false
     @State private var showResults: Bool = false
     
+    @State private var showRouteSetup: Bool = false
+    @State private var routeSimulator = RouteSimulator()
+    
     var body: some View {
         ZStack(alignment: .top) {
             // Map
             MapReader { proxy in
                 Map(position: $cameraPosition) {
-                    if let coordinate = selectedCoordinate {
+                    // Selected location marker
+                    if let coordinate = selectedCoordinate, !routeSimulator.isSimulating {
                         Marker("Selected Location", coordinate: coordinate)
                             .tint(.red)
+                    }
+                    
+                    // Route polyline
+                    if let route = routeSimulator.route {
+                        MapPolyline(route.polyline)
+                            .stroke(.blue, lineWidth: 5)
+                    }
+                    
+                    // Start marker
+                    if let start = routeSimulator.startLocation {
+                        Marker("Start", coordinate: start.placemark.coordinate)
+                            .tint(.green)
+                    }
+                    
+                    // End marker
+                    if let end = routeSimulator.endLocation {
+                        Marker("End", coordinate: end.placemark.coordinate)
+                            .tint(.red)
+                    }
+                    
+                    // Current simulation location
+                    if routeSimulator.isSimulating, let current = routeSimulator.currentLocation {
+                        Annotation("", coordinate: current) {
+                            ZStack {
+                                Circle()
+                                    .fill(.blue)
+                                    .frame(width: 20, height: 20)
+                                Circle()
+                                    .fill(.white)
+                                    .frame(width: 10, height: 10)
+                            }
+                        }
                     }
                 }
                 .mapStyle(.standard)
                 .onTapGesture { screenPoint in
-                    if let coordinate = proxy.convert(screenPoint, from: .local) {
-                        selectedCoordinate = coordinate
-                        onLocationSelected(coordinate)
-                        showResults = false
+                    if !routeSimulator.isSimulating {
+                        if let coordinate = proxy.convert(screenPoint, from: .local) {
+                            selectedCoordinate = coordinate
+                            onLocationSelected(coordinate)
+                            showResults = false
+                        }
                     }
                 }
             }
             
             // Search overlay
             VStack(spacing: 0) {
-                // Search field
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    
-                    TextField("Search location...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .onSubmit {
-                            performSearch()
+                // Search field + Route button
+                HStack(spacing: 8) {
+                    // Search field
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        
+                        TextField("Search location...", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .onSubmit {
+                                performSearch()
+                            }
+                            .disabled(routeSimulator.isSimulating)
+                        
+                        if isSearching {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else if !searchText.isEmpty {
+                            Button(action: {
+                                searchText = ""
+                                searchResults = []
+                                showResults = false
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    
-                    if isSearching {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else if !searchText.isEmpty {
-                        Button(action: {
-                            searchText = ""
-                            searchResults = []
-                            showResults = false
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
                     }
+                    .padding(10)
+                    .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    
+                    // Route button
+                    Button(action: {
+                        showRouteSetup.toggle()
+                    }) {
+                        Image(systemName: routeSimulator.hasRoute ? "point.topleft.down.to.point.bottomright.curvepath.fill" : "point.topleft.down.to.point.bottomright.curvepath")
+                            .font(.system(size: 16))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(10)
+                    .background(routeSimulator.hasRoute ? Color.blue.opacity(0.2) : Color.clear)
+                    .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
                 }
-                .padding(10)
-                .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .sheet(isPresented: $showRouteSetup) {
+                    RouteSetupView(
+                        routeSimulator: routeSimulator,
+                        onStartRoute: {
+                            startRouteSimulation()
+                            showRouteSetup = false
+                        },
+                        onDismiss: {
+                            showRouteSetup = false
+                        }
+                    )
+                }
                 
                 // Search results
                 if showResults && !searchResults.isEmpty {
@@ -89,16 +156,47 @@ struct LocationMapView: View {
                 }
             }
             .padding()
-            .frame(maxWidth: 400)
+            .frame(maxWidth: 450)
+            
+            // Route simulation controls
+            if routeSimulator.hasRoute {
+                VStack {
+                    Spacer()
+                    RouteControlsView(
+                        routeSimulator: routeSimulator,
+                        onStart: { startRouteSimulation() },
+                        onPause: { routeSimulator.pauseSimulation() },
+                        onResume: { resumeRouteSimulation() },
+                        onStop: { routeSimulator.stopSimulation() }
+                    )
+                    .padding()
+                }
+            }
         }
         .overlay(alignment: .bottomTrailing) {
-            CoordinateOverlay(coordinate: selectedCoordinate)
+            CoordinateOverlay(coordinate: routeSimulator.isSimulating ? routeSimulator.currentLocation : selectedCoordinate)
                 .padding()
         }
         .onChange(of: searchText) { _, newValue in
             if newValue.isEmpty {
                 searchResults = []
                 showResults = false
+            }
+        }
+        .onChange(of: routeSimulator.route) { _, newRoute in
+            if let route = newRoute {
+                // Fit map to show the entire route
+                let rect = route.polyline.boundingMapRect
+                let region = MKCoordinateRegion(rect)
+                // Add some padding by increasing the span
+                let paddedRegion = MKCoordinateRegion(
+                    center: region.center,
+                    span: MKCoordinateSpan(
+                        latitudeDelta: region.span.latitudeDelta * 1.3,
+                        longitudeDelta: region.span.longitudeDelta * 1.3
+                    )
+                )
+                cameraPosition = .region(paddedRegion)
             }
         }
     }
@@ -113,13 +211,19 @@ struct LocationMapView: View {
         request.naturalLanguageQuery = searchText
         
         let search = MKLocalSearch(request: request)
-        search.start { response, error in
-            isSearching = false
-            
-            if let response = response {
-                searchResults = response.mapItems
-            } else {
-                searchResults = []
+        
+        Task {
+            do {
+                let response = try await search.start()
+                await MainActor.run {
+                    searchResults = response.mapItems
+                    isSearching = false
+                }
+            } catch {
+                await MainActor.run {
+                    searchResults = []
+                    isSearching = false
+                }
             }
         }
     }
@@ -140,6 +244,68 @@ struct LocationMapView: View {
         // Clear search
         showResults = false
         searchText = item.name ?? ""
+    }
+    
+    private func startRouteSimulation() {
+        routeSimulator.startSimulation { coordinate in
+            onLocationSelected(coordinate)
+        }
+    }
+    
+    private func resumeRouteSimulation() {
+        routeSimulator.resumeSimulation { coordinate in
+            onLocationSelected(coordinate)
+        }
+    }
+}
+
+struct RouteControlsView: View {
+    @Bindable var routeSimulator: RouteSimulator
+    var onStart: () -> Void
+    var onPause: () -> Void
+    var onResume: () -> Void
+    var onStop: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // Progress bar
+            ProgressView(value: routeSimulator.progress)
+                .tint(.blue)
+            
+            HStack(spacing: 16) {
+                // Stop button
+                Button(action: onStop) {
+                    Image(systemName: "stop.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(!routeSimulator.isSimulating && routeSimulator.progress == 0)
+                
+                // Play/Pause button
+                Button(action: {
+                    if routeSimulator.isSimulating {
+                        onPause()
+                    } else if routeSimulator.progress > 0 && routeSimulator.progress < 1 {
+                        onResume()
+                    } else {
+                        onStart()
+                    }
+                }) {
+                    Image(systemName: routeSimulator.isSimulating ? "pause.fill" : "play.fill")
+                        .font(.title)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                // Speed indicator
+                Text("\(Int(routeSimulator.speedMetersPerSecond * 3.6)) km/h")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 60)
+            }
+        }
+        .padding()
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: 300)
     }
 }
 
@@ -167,13 +333,6 @@ struct SearchResultRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background {
-            Rectangle()
-                .fill(.clear)
-        }
-        .onHover { hovering in
-            // Visual feedback handled by system
-        }
     }
 }
 
