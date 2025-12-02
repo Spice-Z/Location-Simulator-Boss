@@ -9,13 +9,16 @@ import SwiftUI
 import MapKit
 
 struct ContentView: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
+    
     @State private var deviceManager = DeviceManager()
-    @State private var favoritesManager = FavoritesManager()
-    @State private var routeSimulator = RouteSimulator()
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var lastSentStatus: String?
     @State private var isLoadingFavorite: Bool = false
-    @State private var routeToEdit: FavoriteRoute?
+    
+    private var favoritesManager: FavoritesManager { appState.favoritesManager }
+    private var routeSimulator: RouteSimulator { appState.routeSimulator }
     
     var body: some View {
         NavigationSplitView {
@@ -26,7 +29,7 @@ struct ContentView: View {
                     loadFavoriteRoute(favorite)
                 },
                 onEditFavorite: { favorite in
-                    routeToEdit = favorite
+                    openRouteEditor(for: favorite)
                 }
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 250)
@@ -35,7 +38,10 @@ struct ContentView: View {
                 LocationMapView(
                     selectedCoordinate: $selectedCoordinate,
                     routeSimulator: routeSimulator,
-                    favoritesManager: favoritesManager
+                    favoritesManager: favoritesManager,
+                    onOpenRouteEditor: {
+                        openRouteEditor()
+                    }
                 ) { coordinate in
                     sendLocationToAllDevices(coordinate)
                 }
@@ -59,14 +65,19 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 600)
-        .sheet(item: $routeToEdit) { route in
-            EditFavoriteRouteView(
-                favoritesManager: favoritesManager,
-                route: route,
-                onDismiss: {
-                    routeToEdit = nil
-                }
-            )
+        .onChange(of: appState.shouldStartSimulation) { _, shouldStart in
+            if shouldStart {
+                startRouteSimulation()
+                appState.shouldStartSimulation = false
+            }
+        }
+    }
+    
+    private func openRouteEditor(for route: FavoriteRoute? = nil) {
+        if let route = route {
+            openWindow(id: "route-editor", value: RouteEditorData(mode: .edit(route)))
+        } else {
+            openWindow(id: "route-editor", value: RouteEditorData(mode: .create))
         }
     }
     
@@ -86,6 +97,12 @@ struct ContentView: View {
                 }
                 clearStatusAfterDelay()
             }
+        }
+    }
+    
+    private func startRouteSimulation() {
+        routeSimulator.startSimulation { coordinate in
+            sendLocationToAllDevices(coordinate)
         }
     }
     
@@ -142,4 +159,5 @@ struct StatusBanner: View {
 
 #Preview {
     ContentView()
+        .environment(AppState())
 }

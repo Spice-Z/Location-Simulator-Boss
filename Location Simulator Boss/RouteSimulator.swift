@@ -44,6 +44,11 @@ class RouteSimulator {
     func calculateRoute() async -> Bool {
         guard let start = startLocation, let end = endLocation else { return false }
         
+        // Clear any previous waypoint route data
+        combinedPolyline = nil
+        combinedDistance = 0
+        combinedTravelTime = 0
+        
         let request = MKDirections.Request()
         request.source = start
         request.destination = end
@@ -253,6 +258,9 @@ class RouteSimulator {
     /// Calculate a route that goes through all waypoints in order
     func calculateRouteWithWaypoints(_ waypoints: [Waypoint]) async -> Bool {
         guard let start = startLocation, let end = endLocation else { return false }
+        
+        // Clear any previous direct route data
+        route = nil
         
         // Build list of all points: start -> waypoints -> end
         var allPoints: [MKMapItem] = [start]

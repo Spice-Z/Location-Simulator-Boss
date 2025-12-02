@@ -12,6 +12,7 @@ struct LocationMapView: View {
     @Binding var selectedCoordinate: CLLocationCoordinate2D?
     @Bindable var routeSimulator: RouteSimulator
     @Bindable var favoritesManager: FavoritesManager
+    var onOpenRouteEditor: () -> Void
     var onLocationSelected: (CLLocationCoordinate2D) -> Void
     
     @State private var cameraPosition: MapCameraPosition = Self.loadSavedCameraPosition()
@@ -20,8 +21,6 @@ struct LocationMapView: View {
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching: Bool = false
     @State private var showResults: Bool = false
-    
-    @State private var showRouteSetup: Bool = false
     
     // Keys for UserDefaults
     private static let mapCenterLatKey = "mapCenterLatitude"
@@ -162,9 +161,9 @@ struct LocationMapView: View {
                     .padding(10)
                     .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
                     
-                    // Route button
+                    // Route button - opens route editor window
                     Button(action: {
-                        showRouteSetup.toggle()
+                        onOpenRouteEditor()
                     }) {
                         Image(systemName: routeSimulator.hasRoute ? "point.topleft.down.to.point.bottomright.curvepath.fill" : "point.topleft.down.to.point.bottomright.curvepath")
                             .font(.system(size: 16))
@@ -174,19 +173,7 @@ struct LocationMapView: View {
                     .padding(10)
                     .background(routeSimulator.hasRoute ? Color.blue.opacity(0.2) : Color.clear)
                     .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
-                }
-                .sheet(isPresented: $showRouteSetup) {
-                    RouteSetupView(
-                        routeSimulator: routeSimulator,
-                        favoritesManager: favoritesManager,
-                        onStartRoute: {
-                            startRouteSimulation()
-                            showRouteSetup = false
-                        },
-                        onDismiss: {
-                            showRouteSetup = false
-                        }
-                    )
+                    .help("Create/Edit Route")
                 }
                 
                 // Search results
@@ -463,7 +450,8 @@ extension MKPlacemark {
     LocationMapView(
         selectedCoordinate: .constant(nil),
         routeSimulator: RouteSimulator(),
-        favoritesManager: FavoritesManager()
+        favoritesManager: FavoritesManager(),
+        onOpenRouteEditor: { print("Open route editor") }
     ) { coordinate in
         print("Selected: \(coordinate)")
     }
