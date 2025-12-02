@@ -7,6 +7,7 @@
 
 import SwiftUI
 import MapKit
+import Combine
 
 // Mode for the route editor
 enum RouteEditorMode: Equatable {
