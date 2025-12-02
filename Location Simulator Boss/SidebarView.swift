@@ -11,6 +11,7 @@ struct SidebarView: View {
     @Bindable var deviceManager: DeviceManager
     @Bindable var favoritesManager: FavoritesManager
     var onSelectFavorite: (FavoriteRoute) -> Void
+    var onEditFavorite: (FavoriteRoute) -> Void
     
     var body: some View {
         List {
@@ -24,6 +25,21 @@ struct SidebarView: View {
                     ForEach(favoritesManager.favoriteRoutes) { route in
                         FavoriteRouteRow(route: route) {
                             onSelectFavorite(route)
+                        }
+                        .contextMenu {
+                            Button {
+                                onEditFavorite(route)
+                            } label: {
+                                Label("Edit Route", systemImage: "pencil")
+                            }
+                            
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                favoritesManager.removeFavorite(route)
+                            } label: {
+                                Label("Delete Route", systemImage: "trash")
+                            }
                         }
                     }
                     .onDelete { offsets in
@@ -131,7 +147,8 @@ struct DeviceSection: View {
     SidebarView(
         deviceManager: DeviceManager(),
         favoritesManager: FavoritesManager(),
-        onSelectFavorite: { _ in }
+        onSelectFavorite: { _ in },
+        onEditFavorite: { _ in }
     )
     .frame(width: 250)
 }

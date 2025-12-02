@@ -11,12 +11,12 @@ import CoreLocation
 struct FavoriteRoute: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
-    let startName: String
-    let startLatitude: Double
-    let startLongitude: Double
-    let endName: String
-    let endLatitude: Double
-    let endLongitude: Double
+    var startName: String
+    var startLatitude: Double
+    var startLongitude: Double
+    var endName: String
+    var endLatitude: Double
+    var endLongitude: Double
     let createdAt: Date
     
     var startCoordinate: CLLocationCoordinate2D {

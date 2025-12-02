@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var lastSentStatus: String?
     @State private var isLoadingFavorite: Bool = false
+    @State private var routeToEdit: FavoriteRoute?
     
     var body: some View {
         NavigationSplitView {
@@ -23,6 +24,9 @@ struct ContentView: View {
                 favoritesManager: favoritesManager,
                 onSelectFavorite: { favorite in
                     loadFavoriteRoute(favorite)
+                },
+                onEditFavorite: { favorite in
+                    routeToEdit = favorite
                 }
             )
             .navigationSplitViewColumnWidth(min: 200, ideal: 250)
@@ -55,6 +59,15 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 800, minHeight: 600)
+        .sheet(item: $routeToEdit) { route in
+            EditFavoriteRouteView(
+                favoritesManager: favoritesManager,
+                route: route,
+                onDismiss: {
+                    routeToEdit = nil
+                }
+            )
+        }
     }
     
     private func loadFavoriteRoute(_ favorite: FavoriteRoute) {

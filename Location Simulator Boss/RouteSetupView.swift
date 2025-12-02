@@ -251,6 +251,278 @@ struct SaveFavoriteView: View {
     }
 }
 
+struct EditFavoriteRouteView: View {
+    @Bindable var favoritesManager: FavoritesManager
+    let route: FavoriteRoute
+    var onDismiss: () -> Void
+    
+    @State private var editedName: String
+    @State private var startSearchText: String
+    @State private var endSearchText: String
+    @State private var startSearchResults: [MKMapItem] = []
+    @State private var endSearchResults: [MKMapItem] = []
+    @State private var isSearchingStart: Bool = false
+    @State private var isSearchingEnd: Bool = false
+    @State private var startName: String
+    @State private var endName: String
+    @State private var startCoordinate: CLLocationCoordinate2D
+    @State private var endCoordinate: CLLocationCoordinate2D
+    @State private var hasChangedStart: Bool = false
+    @State private var hasChangedEnd: Bool = false
+    
+    init(favoritesManager: FavoritesManager, route: FavoriteRoute, onDismiss: @escaping () -> Void) {
+        self.favoritesManager = favoritesManager
+        self.route = route
+        self.onDismiss = onDismiss
+        // Initialize state with route values
+        _editedName = State(initialValue: route.name)
+        _startSearchText = State(initialValue: route.startName)
+        _endSearchText = State(initialValue: route.endName)
+        _startName = State(initialValue: route.startName)
+        _endName = State(initialValue: route.endName)
+        _startCoordinate = State(initialValue: route.startCoordinate)
+        _endCoordinate = State(initialValue: route.endCoordinate)
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header
+            HStack {
+                Text("Edit Route")
+                    .font(.headline)
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Divider()
+            
+            // Route Name
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Route Name", systemImage: "tag")
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                
+                TextField("Route name", text: $editedName)
+                    .textFieldStyle(.roundedBorder)
+            }
+            
+            // Start Location
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Start Location", systemImage: "circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                    
+                    Spacer()
+                    
+                    if !hasChangedStart {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
+                }
+                
+                EditLocationSearchField(
+                    searchText: $startSearchText,
+                    searchResults: $startSearchResults,
+                    isSearching: $isSearchingStart,
+                    placeholder: "Search start location...",
+                    onSelect: { item in
+                        startSearchText = item.name ?? ""
+                        startName = item.name ?? "Unknown"
+                        startCoordinate = item.placemark.coordinate
+                        hasChangedStart = true
+                    }
+                )
+            }
+            
+            // End Location
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("End Location", systemImage: "mappin.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                    
+                    Spacer()
+                    
+                    if !hasChangedEnd {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    }
+                }
+                
+                EditLocationSearchField(
+                    searchText: $endSearchText,
+                    searchResults: $endSearchResults,
+                    isSearching: $isSearchingEnd,
+                    placeholder: "Search end location...",
+                    onSelect: { item in
+                        endSearchText = item.name ?? ""
+                        endName = item.name ?? "Unknown"
+                        endCoordinate = item.placemark.coordinate
+                        hasChangedEnd = true
+                    }
+                )
+            }
+            
+            Divider()
+            
+            // Action buttons
+            HStack {
+                Button("Cancel", action: onDismiss)
+                
+                Spacer()
+                
+                Button("Save Changes") {
+                    saveChanges()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(editedName.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 360, height: 420)
+    }
+    
+    private func saveChanges() {
+        var updatedRoute = route
+        updatedRoute.name = editedName
+        updatedRoute.startName = startName
+        updatedRoute.endName = endName
+        updatedRoute.startLatitude = startCoordinate.latitude
+        updatedRoute.startLongitude = startCoordinate.longitude
+        updatedRoute.endLatitude = endCoordinate.latitude
+        updatedRoute.endLongitude = endCoordinate.longitude
+        
+        favoritesManager.updateFavorite(updatedRoute)
+        onDismiss()
+    }
+}
+
+// Simplified search field for editing (without the selectedItem parameter)
+struct EditLocationSearchField: View {
+    @Binding var searchText: String
+    @Binding var searchResults: [MKMapItem]
+    @Binding var isSearching: Bool
+    let placeholder: String
+    let onSelect: (MKMapItem) -> Void
+    
+    @State private var searchError: String?
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                TextField(placeholder, text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        performSearch()
+                    }
+                
+                // Search button
+                Button(action: { performSearch() }) {
+                    Image(systemName: "magnifyingglass")
+                }
+                .disabled(searchText.isEmpty || isSearching)
+                
+                if isSearching {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
+            }
+            
+            // Show error if any
+            if let error = searchError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            
+            // Always show results if we have them
+            if !searchResults.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchResults.prefix(5)), id: \.self) { item in
+                        Button(action: { 
+                            onSelect(item)
+                            searchResults = []
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name ?? "Unknown")
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                    
+                                    if let address = formatAddress(item.placemark) {
+                                        Text(address)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if item != searchResults.prefix(5).last {
+                            Divider()
+                        }
+                    }
+                }
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+            }
+        }
+    }
+    
+    private func formatAddress(_ placemark: MKPlacemark) -> String? {
+        let components = [
+            placemark.subThoroughfare,
+            placemark.thoroughfare,
+            placemark.locality,
+            placemark.administrativeArea,
+            placemark.country
+        ].compactMap { $0 }
+        
+        return components.isEmpty ? nil : components.joined(separator: ", ")
+    }
+    
+    private func performSearch() {
+        guard !searchText.isEmpty else { return }
+        
+        isSearching = true
+        searchError = nil
+        
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = searchText
+        
+        let search = MKLocalSearch(request: request)
+        
+        Task { @MainActor in
+            do {
+                let response = try await search.start()
+                self.searchResults = response.mapItems
+                self.isSearching = false
+            } catch {
+                self.searchResults = []
+                self.isSearching = false
+                self.searchError = "Search failed: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
 struct LocationSearchField: View {
     @Binding var searchText: String
     @Binding var searchResults: [MKMapItem]
