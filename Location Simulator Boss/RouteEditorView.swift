@@ -22,6 +22,37 @@ enum MapPlacementSelection: Equatable {
     case waypoint(UUID)
 }
 
+// Editable waypoint for the route editor
+class EditableWaypoint: Identifiable, ObservableObject {
+    let id: UUID
+    @Published var name: String
+    @Published var searchText: String
+    @Published var coordinate: CLLocationCoordinate2D?
+    
+    var isValid: Bool {
+        coordinate != nil && !name.isEmpty
+    }
+    
+    init(id: UUID = UUID(), name: String = "", searchText: String = "", coordinate: CLLocationCoordinate2D? = nil) {
+        self.id = id
+        self.name = name
+        self.searchText = searchText
+        self.coordinate = coordinate
+    }
+    
+    init(from waypoint: Waypoint) {
+        self.id = waypoint.id
+        self.name = waypoint.name
+        self.searchText = waypoint.name
+        self.coordinate = waypoint.coordinate
+    }
+    
+    func toWaypoint() -> Waypoint? {
+        guard let coordinate = coordinate else { return nil }
+        return Waypoint(id: id, name: name, coordinate: coordinate)
+    }
+}
+
 struct RouteEditorView: View {
     @Environment(\.dismiss) private var dismiss
     

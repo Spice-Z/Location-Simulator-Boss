@@ -39,6 +39,7 @@ struct Location_Simulator_BossApp: App {
 }
 
 // Shared app state
+@MainActor
 @Observable
 class AppState {
     var favoritesManager = FavoritesManager()
