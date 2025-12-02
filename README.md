@@ -45,6 +45,12 @@ The app will be at: `build/Build/Products/Release/Location Simulator Boss.app`
 
 ```bash
 # Create DMG file
+xcodebuild -project "Location Simulator Boss.xcodeproj" \
+  -scheme "Location Simulator Boss" \
+  -configuration Release \
+  -derivedDataPath build \
+  clean build && \
+rm -f Location_Simulator_Boss.dmg && \
 hdiutil create -volname "Location Simulator Boss" \
   -srcfolder "build/Build/Products/Release/Location Simulator Boss.app" \
   -ov -format UDZO \
