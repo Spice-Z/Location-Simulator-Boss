@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  Location Simulator for Both
+//  Location Simulator Boss
 //
 //  Created by Yugo Ogura on 2025-12-02.
 //

@@ -1,6 +1,6 @@
 //
-//  Location_Simulator_for_BothApp.swift
-//  Location Simulator for Both
+//  Location_Simulator_BossApp.swift
+//  Location Simulator Boss
 //
 //  Created by Yugo Ogura on 2025-12-02.
 //
@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct Location_Simulator_for_BothApp: App {
+struct Location_Simulator_BossApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
