@@ -26,9 +26,10 @@ struct RouteSetupView: View {
     @State private var routeError: String?
     @State private var showSaveDialog: Bool = false
     @State private var favoriteName: String = ""
+    @State private var waypoints: [EditableWaypoint] = []
     
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             // Header
             HStack {
                 Text("Route Simulation")
@@ -40,67 +41,126 @@ struct RouteSetupView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .padding()
             
             Divider()
             
-            // Start Location
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Start Location", systemImage: "circle.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.green)
-                
-                LocationSearchField(
-                    searchText: $startSearchText,
-                    searchResults: $startSearchResults,
-                    isSearching: $isSearchingStart,
-                    showResults: $showStartResults,
-                    selectedItem: routeSimulator.startLocation,
-                    placeholder: "Search start location...",
-                    onSelect: { item in
-                        routeSimulator.startLocation = item
-                        startSearchText = item.name ?? ""
-                        showStartResults = false
-                        routeError = nil
+            // Scrollable content
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Start Location
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Start Location", systemImage: "circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.green)
+                        
+                        LocationSearchField(
+                            searchText: $startSearchText,
+                            searchResults: $startSearchResults,
+                            isSearching: $isSearchingStart,
+                            showResults: $showStartResults,
+                            selectedItem: routeSimulator.startLocation,
+                            placeholder: "Search start location...",
+                            onSelect: { item in
+                                routeSimulator.startLocation = item
+                                startSearchText = item.name ?? ""
+                                showStartResults = false
+                                routeError = nil
+                            }
+                        )
                     }
-                )
-            }
-            
-            // End Location
-            VStack(alignment: .leading, spacing: 8) {
-                Label("End Location", systemImage: "mappin.circle.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.red)
-                
-                LocationSearchField(
-                    searchText: $endSearchText,
-                    searchResults: $endSearchResults,
-                    isSearching: $isSearchingEnd,
-                    showResults: $showEndResults,
-                    selectedItem: routeSimulator.endLocation,
-                    placeholder: "Search end location...",
-                    onSelect: { item in
-                        routeSimulator.endLocation = item
-                        endSearchText = item.name ?? ""
-                        showEndResults = false
-                        routeError = nil
+                    
+                    // Waypoints Section
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Waypoints", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                            
+                            Spacer()
+                            
+                            Button(action: addWaypoint) {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Add waypoint")
+                        }
+                        
+                        if waypoints.isEmpty {
+                            Text("No waypoints. Click + to add a stop.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .italic()
+                                .padding(.vertical, 4)
+                        } else {
+                            ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, waypoint in
+                                WaypointEditRow(
+                                    waypoint: $waypoints[index],
+                                    index: index + 1,
+                                    onDelete: {
+                                        waypoints.remove(at: index)
+                                    }
+                                )
+                            }
+                        }
                     }
-                )
-            }
-            
-            // Speed control
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Speed: \(Int(routeSimulator.speedMetersPerSecond * 3.6)) km/h", systemImage: "speedometer")
-                    .font(.subheadline)
-                
-                Slider(value: $routeSimulator.speedMetersPerSecond, in: 2.8...55.6) // 10-200 km/h
-                    .tint(.blue)
-            }
-            
-            // Error message
-            if let error = routeError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    
+                    // End Location
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("End Location", systemImage: "mappin.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
+                        
+                        LocationSearchField(
+                            searchText: $endSearchText,
+                            searchResults: $endSearchResults,
+                            isSearching: $isSearchingEnd,
+                            showResults: $showEndResults,
+                            selectedItem: routeSimulator.endLocation,
+                            placeholder: "Search end location...",
+                            onSelect: { item in
+                                routeSimulator.endLocation = item
+                                endSearchText = item.name ?? ""
+                                showEndResults = false
+                                routeError = nil
+                            }
+                        )
+                    }
+                    
+                    // Speed control
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Speed: \(Int(routeSimulator.speedMetersPerSecond * 3.6)) km/h", systemImage: "speedometer")
+                            .font(.subheadline)
+                        
+                        Slider(value: $routeSimulator.speedMetersPerSecond, in: 2.8...55.6) // 10-200 km/h
+                            .tint(.blue)
+                    }
+                    
+                    // Error message
+                    if let error = routeError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    
+                    // Route info
+                    if routeSimulator.hasRoute {
+                        HStack {
+                            Label(formatDistance(routeSimulator.displayDistance), systemImage: "arrow.triangle.swap")
+                            Spacer()
+                            Label(formatDuration(routeSimulator.displayTravelTime), systemImage: "clock")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    
+                    if isCalculatingRoute {
+                        ProgressView("Calculating route...")
+                            .font(.caption)
+                    }
+                }
+                .padding()
             }
             
             Divider()
@@ -111,6 +171,7 @@ struct RouteSetupView: View {
                     routeSimulator.reset()
                     startSearchText = ""
                     endSearchText = ""
+                    waypoints = []
                     routeError = nil
                 }
                 .disabled(isCalculatingRoute)
@@ -139,25 +200,9 @@ struct RouteSetupView: View {
                     .disabled(!routeSimulator.canCalculateRoute || isCalculatingRoute)
                 }
             }
-            
-            // Route info
-            if let route = routeSimulator.route {
-                HStack {
-                    Label(formatDistance(route.distance), systemImage: "arrow.triangle.swap")
-                    Spacer()
-                    Label(formatDuration(route.expectedTravelTime), systemImage: "clock")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            
-            if isCalculatingRoute {
-                ProgressView("Calculating route...")
-                    .font(.caption)
-            }
+            .padding()
         }
-        .padding()
-        .frame(width: 320)
+        .frame(width: 380, height: 520)
         .sheet(isPresented: $showSaveDialog) {
             SaveFavoriteView(
                 name: $favoriteName,
@@ -172,12 +217,27 @@ struct RouteSetupView: View {
         }
     }
     
+    private func addWaypoint() {
+        waypoints.append(EditableWaypoint())
+    }
+    
     private func calculateRoute() {
         isCalculatingRoute = true
         routeError = nil
         
+        // Convert valid waypoints to Waypoint structs
+        let validWaypoints = waypoints.compactMap { editable -> Waypoint? in
+            guard let coord = editable.coordinate, !editable.name.isEmpty else { return nil }
+            return Waypoint(id: editable.id, name: editable.name, coordinate: coord)
+        }
+        
         Task {
-            let success = await routeSimulator.calculateRoute()
+            let success: Bool
+            if validWaypoints.isEmpty {
+                success = await routeSimulator.calculateRoute()
+            } else {
+                success = await routeSimulator.calculateRouteWithWaypoints(validWaypoints)
+            }
             
             await MainActor.run {
                 isCalculatingRoute = false
@@ -192,12 +252,19 @@ struct RouteSetupView: View {
         guard let start = routeSimulator.startLocation,
               let end = routeSimulator.endLocation else { return }
         
+        // Convert valid waypoints to Waypoint structs
+        let validWaypoints = waypoints.compactMap { editable -> Waypoint? in
+            guard let coord = editable.coordinate, !editable.name.isEmpty else { return nil }
+            return Waypoint(id: editable.id, name: editable.name, coordinate: coord)
+        }
+        
         let favorite = FavoriteRoute(
             name: favoriteName,
             startName: start.name ?? "Unknown",
             startCoordinate: start.placemark.coordinate,
             endName: end.name ?? "Unknown",
-            endCoordinate: end.placemark.coordinate
+            endCoordinate: end.placemark.coordinate,
+            waypoints: validWaypoints
         )
         
         favoritesManager.addFavorite(favorite)
@@ -550,7 +617,7 @@ struct WaypointEditRow: View {
                 // Search results
                 if !waypoint.searchResults.isEmpty {
                     VStack(spacing: 0) {
-                        ForEach(Array(waypoint.searchResults.prefix(3)), id: \.self) { item in
+                        ForEach(Array(waypoint.searchResults.prefix(5)), id: \.self) { item in
                             Button(action: {
                                 waypoint.name = item.name ?? "Unknown"
                                 waypoint.searchText = item.name ?? ""
@@ -559,23 +626,35 @@ struct WaypointEditRow: View {
                                 hasSearched = false
                             }) {
                                 HStack {
-                                    Text(item.name ?? "Unknown")
-                                        .font(.caption)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name ?? "Unknown")
+                                            .font(.body)
+                                            .foregroundStyle(.primary)
+                                        
+                                        if let address = formatAddress(item.placemark) {
+                                            Text(address)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
                                     Spacer()
                                 }
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.vertical, 6)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            
+                            if item != waypoint.searchResults.prefix(5).last {
+                                Divider()
+                            }
                         }
                     }
                     .background(Color(nsColor: .controlBackgroundColor))
-                    .cornerRadius(6)
+                    .cornerRadius(8)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
                 }
@@ -590,6 +669,18 @@ struct WaypointEditRow: View {
             .help("Remove waypoint")
         }
         .padding(.vertical, 4)
+    }
+    
+    private func formatAddress(_ placemark: MKPlacemark) -> String? {
+        let components = [
+            placemark.subThoroughfare,
+            placemark.thoroughfare,
+            placemark.locality,
+            placemark.administrativeArea,
+            placemark.country
+        ].compactMap { $0 }
+        
+        return components.isEmpty ? nil : components.joined(separator: ", ")
     }
     
     private func performSearch() {
