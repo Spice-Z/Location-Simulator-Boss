@@ -65,10 +65,8 @@ struct LocationMapView: View {
             // Map
             MapReader { proxy in
                 Map(position: $cameraPosition) {
-                    // Selected location marker (only when not simulating/paused and no route location)
+                    // Selected location marker (shows when no route simulation location is active)
                     if let coordinate = selectedCoordinate,
-                       !routeSimulator.isSimulating,
-                       !routeSimulator.isPaused,
                        routeSimulator.currentLocation == nil {
                         Marker("Selected Location", coordinate: coordinate)
                             .tint(.red)
@@ -118,6 +116,9 @@ struct LocationMapView: View {
                     if let coordinate = proxy.convert(screenPoint, from: .local) {
                         selectedCoordinate = coordinate
                         showResults = false
+                        
+                        // Clear route simulation's current location so selected marker shows
+                        routeSimulator.currentLocation = nil
                         
                         // Fire and forget to avoid blocking
                         Task {
@@ -328,14 +329,13 @@ struct RouteControlsView: View {
             }
             
             HStack(spacing: 16) {
-                // Stop button - clears route and keeps current location
+                // Stop button - clears route (always enabled when route exists)
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
                         .font(.title2)
                 }
                 .buttonStyle(.plain)
-                .disabled(!routeSimulator.isSimulating && !routeSimulator.isPaused)
-                .help("Stop and clear route")
+                .help("Clear route")
                 
                 // Play/Pause button
                 Button(action: {
