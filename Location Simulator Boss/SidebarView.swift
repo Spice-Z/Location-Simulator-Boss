@@ -9,9 +9,30 @@ import SwiftUI
 
 struct SidebarView: View {
     @Bindable var deviceManager: DeviceManager
+    @Bindable var favoritesManager: FavoritesManager
+    var onSelectFavorite: (FavoriteRoute) -> Void
     
     var body: some View {
         List {
+            // Favorite Routes Section
+            Section("Favorite Routes") {
+                if favoritesManager.favoriteRoutes.isEmpty {
+                    Text("No saved routes")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                } else {
+                    ForEach(favoritesManager.favoriteRoutes) { route in
+                        FavoriteRouteRow(route: route) {
+                            onSelectFavorite(route)
+                        }
+                    }
+                    .onDelete { offsets in
+                        favoritesManager.removeFavorite(at: offsets)
+                    }
+                }
+            }
+            
+            // Devices Section
             Section("Devices (\(deviceManager.devices.count))") {
                 if deviceManager.devices.isEmpty {
                     if deviceManager.isScanning {
@@ -54,6 +75,44 @@ struct SidebarView: View {
     }
 }
 
+struct FavoriteRouteRow: View {
+    let route: FavoriteRoute
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(route.name)
+                    .font(.body)
+                    .fontWeight(.medium)
+                
+                HStack(spacing: 4) {
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(.green)
+                    Text(route.startName)
+                        .lineLimit(1)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(.red)
+                    Text(route.endName)
+                        .lineLimit(1)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct DeviceSection: View {
     let title: String
     let devices: [Device]
@@ -69,6 +128,10 @@ struct DeviceSection: View {
 }
 
 #Preview {
-    SidebarView(deviceManager: DeviceManager())
-        .frame(width: 250)
+    SidebarView(
+        deviceManager: DeviceManager(),
+        favoritesManager: FavoritesManager(),
+        onSelectFavorite: { _ in }
+    )
+    .frame(width: 250)
 }

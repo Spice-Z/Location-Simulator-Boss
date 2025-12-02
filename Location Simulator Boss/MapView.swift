@@ -10,6 +10,8 @@ import MapKit
 
 struct LocationMapView: View {
     @Binding var selectedCoordinate: CLLocationCoordinate2D?
+    @Bindable var routeSimulator: RouteSimulator
+    @Bindable var favoritesManager: FavoritesManager
     var onLocationSelected: (CLLocationCoordinate2D) -> Void
     
     @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
@@ -23,15 +25,17 @@ struct LocationMapView: View {
     @State private var showResults: Bool = false
     
     @State private var showRouteSetup: Bool = false
-    @State private var routeSimulator = RouteSimulator()
     
     var body: some View {
         ZStack(alignment: .top) {
             // Map
             MapReader { proxy in
                 Map(position: $cameraPosition) {
-                    // Selected location marker
-                    if let coordinate = selectedCoordinate, !routeSimulator.isSimulating {
+                    // Selected location marker (only when not simulating/paused and no route location)
+                    if let coordinate = selectedCoordinate,
+                       !routeSimulator.isSimulating,
+                       !routeSimulator.isPaused,
+                       routeSimulator.currentLocation == nil {
                         Marker("Selected Location", coordinate: coordinate)
                             .tint(.red)
                     }
@@ -42,24 +46,24 @@ struct LocationMapView: View {
                             .stroke(.blue, lineWidth: 5)
                     }
                     
-                    // Start marker
-                    if let start = routeSimulator.startLocation {
+                    // Start marker (only when route exists)
+                    if routeSimulator.route != nil, let start = routeSimulator.startLocation {
                         Marker("Start", coordinate: start.placemark.coordinate)
                             .tint(.green)
                     }
                     
-                    // End marker
-                    if let end = routeSimulator.endLocation {
+                    // End marker (only when route exists)
+                    if routeSimulator.route != nil, let end = routeSimulator.endLocation {
                         Marker("End", coordinate: end.placemark.coordinate)
                             .tint(.red)
                     }
                     
-                    // Current simulation location
-                    if routeSimulator.isSimulating, let current = routeSimulator.currentLocation {
+                    // Current location marker (during simulation, paused, or after stop)
+                    if let current = routeSimulator.currentLocation {
                         Annotation("", coordinate: current) {
                             ZStack {
                                 Circle()
-                                    .fill(.blue)
+                                    .fill(routeSimulator.isPaused ? .orange : .blue)
                                     .frame(width: 20, height: 20)
                                 Circle()
                                     .fill(.white)
@@ -70,11 +74,16 @@ struct LocationMapView: View {
                 }
                 .mapStyle(.standard)
                 .onTapGesture { screenPoint in
-                    if !routeSimulator.isSimulating {
-                        if let coordinate = proxy.convert(screenPoint, from: .local) {
-                            selectedCoordinate = coordinate
+                    // Ignore taps during simulation
+                    guard !routeSimulator.isSimulating else { return }
+                    
+                    if let coordinate = proxy.convert(screenPoint, from: .local) {
+                        selectedCoordinate = coordinate
+                        showResults = false
+                        
+                        // Fire and forget to avoid blocking
+                        Task {
                             onLocationSelected(coordinate)
-                            showResults = false
                         }
                     }
                 }
@@ -130,6 +139,7 @@ struct LocationMapView: View {
                 .sheet(isPresented: $showRouteSetup) {
                     RouteSetupView(
                         routeSimulator: routeSimulator,
+                        favoritesManager: favoritesManager,
                         onStartRoute: {
                             startRouteSimulation()
                             showRouteSetup = false
@@ -272,20 +282,28 @@ struct RouteControlsView: View {
             ProgressView(value: routeSimulator.progress)
                 .tint(.blue)
             
+            // Status text
+            if routeSimulator.isPaused {
+                Text("Paused")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            
             HStack(spacing: 16) {
-                // Stop button
+                // Stop button - clears route and keeps current location
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
                         .font(.title2)
                 }
                 .buttonStyle(.plain)
-                .disabled(!routeSimulator.isSimulating && routeSimulator.progress == 0)
+                .disabled(!routeSimulator.isSimulating && !routeSimulator.isPaused)
+                .help("Stop and clear route")
                 
                 // Play/Pause button
                 Button(action: {
                     if routeSimulator.isSimulating {
                         onPause()
-                    } else if routeSimulator.progress > 0 && routeSimulator.progress < 1 {
+                    } else if routeSimulator.canResume {
                         onResume()
                     } else {
                         onStart()
@@ -296,16 +314,43 @@ struct RouteControlsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 
-                // Speed indicator
-                Text("\(Int(routeSimulator.speedMetersPerSecond * 3.6)) km/h")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 60)
+                // Speed controls
+                HStack(spacing: 8) {
+                    Button(action: decreaseSpeed) {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(routeSimulator.speedMetersPerSecond <= 2.8)
+                    
+                    Text("\(Int(routeSimulator.speedMetersPerSecond * 3.6))")
+                        .font(.system(.body, design: .monospaced))
+                        .frame(width: 40)
+                    
+                    Button(action: increaseSpeed) {
+                        Image(systemName: "plus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(routeSimulator.speedMetersPerSecond >= 55.6)
+                    
+                    Text("km/h")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
         .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .frame(maxWidth: 300)
+        .frame(maxWidth: 350)
+    }
+    
+    private func increaseSpeed() {
+        // Increase by ~10 km/h (2.78 m/s)
+        routeSimulator.speedMetersPerSecond = min(55.6, routeSimulator.speedMetersPerSecond + 2.78)
+    }
+    
+    private func decreaseSpeed() {
+        // Decrease by ~10 km/h (2.78 m/s)
+        routeSimulator.speedMetersPerSecond = max(2.8, routeSimulator.speedMetersPerSecond - 2.78)
     }
 }
 
@@ -369,7 +414,11 @@ extension MKPlacemark {
 }
 
 #Preview {
-    LocationMapView(selectedCoordinate: .constant(nil)) { coordinate in
+    LocationMapView(
+        selectedCoordinate: .constant(nil),
+        routeSimulator: RouteSimulator(),
+        favoritesManager: FavoritesManager()
+    ) { coordinate in
         print("Selected: \(coordinate)")
     }
 }

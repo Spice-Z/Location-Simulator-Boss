@@ -10,40 +10,93 @@ import MapKit
 
 struct ContentView: View {
     @State private var deviceManager = DeviceManager()
+    @State private var favoritesManager = FavoritesManager()
+    @State private var routeSimulator = RouteSimulator()
     @State private var selectedCoordinate: CLLocationCoordinate2D?
     @State private var lastSentStatus: String?
+    @State private var isLoadingFavorite: Bool = false
     
     var body: some View {
         NavigationSplitView {
-            SidebarView(deviceManager: deviceManager)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250)
+            SidebarView(
+                deviceManager: deviceManager,
+                favoritesManager: favoritesManager,
+                onSelectFavorite: { favorite in
+                    loadFavoriteRoute(favorite)
+                }
+            )
+            .navigationSplitViewColumnWidth(min: 200, ideal: 250)
         } detail: {
-            LocationMapView(selectedCoordinate: $selectedCoordinate) { coordinate in
-                sendLocationToAllDevices(coordinate)
-            }
-            .overlay(alignment: .top) {
-                StatusBanner(status: lastSentStatus)
+            ZStack {
+                LocationMapView(
+                    selectedCoordinate: $selectedCoordinate,
+                    routeSimulator: routeSimulator,
+                    favoritesManager: favoritesManager
+                ) { coordinate in
+                    sendLocationToAllDevices(coordinate)
+                }
+                .overlay(alignment: .top) {
+                    StatusBanner(status: lastSentStatus)
+                }
+                
+                if isLoadingFavorite {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    
+                    VStack {
+                        ProgressView()
+                        Text("Loading route...")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
             }
         }
         .frame(minWidth: 800, minHeight: 600)
+    }
+    
+    private func loadFavoriteRoute(_ favorite: FavoriteRoute) {
+        isLoadingFavorite = true
+        
+        Task {
+            let success = await routeSimulator.loadFromFavorite(favorite)
+            
+            await MainActor.run {
+                isLoadingFavorite = false
+                
+                if success {
+                    lastSentStatus = "Route loaded: \(favorite.name)"
+                } else {
+                    lastSentStatus = "Failed to load route"
+                }
+                clearStatusAfterDelay()
+            }
+        }
     }
     
     private func sendLocationToAllDevices(_ coordinate: CLLocationCoordinate2D) {
         let devices = deviceManager.devices
         
         if devices.isEmpty {
-            lastSentStatus = "No devices found"
-            clearStatusAfterDelay()
+            // Only show status if not simulating (to avoid spam)
+            if !routeSimulator.isSimulating {
+                lastSentStatus = "No devices found"
+                clearStatusAfterDelay()
+            }
             return
         }
         
-        Task {
+        // Use detached task to avoid blocking
+        Task.detached {
             await LocationSender.shared.sendLocation(coordinate, to: devices)
-            
-            await MainActor.run {
-                lastSentStatus = "Sent to \(devices.count) device(s)"
-                clearStatusAfterDelay()
-            }
+        }
+        
+        // Only show status if not simulating (to avoid spam and main thread pressure)
+        if !routeSimulator.isSimulating {
+            lastSentStatus = "Sent to \(devices.count) device(s)"
+            clearStatusAfterDelay()
         }
     }
     

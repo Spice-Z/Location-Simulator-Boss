@@ -9,9 +9,11 @@ import Foundation
 import MapKit
 import Observation
 
+@MainActor
 @Observable
 class RouteSimulator {
     var isSimulating: Bool = false
+    var isPaused: Bool = false
     var currentLocation: CLLocationCoordinate2D?
     var route: MKRoute?
     var progress: Double = 0.0 // 0.0 to 1.0
@@ -19,12 +21,12 @@ class RouteSimulator {
     var startLocation: MKMapItem?
     var endLocation: MKMapItem?
     
+    // Simulation speed in meters per second (default ~50 km/h)
+    var speedMetersPerSecond: Double = 14.0
+    
     private var routeCoordinates: [CLLocationCoordinate2D] = []
     private var simulationTask: Task<Void, Never>?
     private var currentIndex: Int = 0
-    
-    // Simulation speed in meters per second (default ~50 km/h)
-    var speedMetersPerSecond: Double = 14.0
     
     var canCalculateRoute: Bool {
         startLocation != nil && endLocation != nil
@@ -32,6 +34,11 @@ class RouteSimulator {
     
     var hasRoute: Bool {
         route != nil && !routeCoordinates.isEmpty
+    }
+    
+    /// True if simulation can be resumed (paused mid-way)
+    var canResume: Bool {
+        isPaused && currentIndex > 0 && currentIndex < routeCoordinates.count
     }
     
     func calculateRoute() async -> Bool {
@@ -48,15 +55,13 @@ class RouteSimulator {
         do {
             let response = try await directions.calculate()
             
-            if let route = response.routes.first {
-                await MainActor.run {
-                    self.route = route
-                    self.routeCoordinates = extractCoordinates(from: route.polyline)
-                    self.progress = 0.0
-                    self.currentIndex = 0
-                    if let first = routeCoordinates.first {
-                        self.currentLocation = first
-                    }
+            if let calculatedRoute = response.routes.first {
+                self.route = calculatedRoute
+                self.routeCoordinates = extractCoordinates(from: calculatedRoute.polyline)
+                self.progress = 0.0
+                self.currentIndex = 0
+                if let first = routeCoordinates.first {
+                    self.currentLocation = first
                 }
                 return true
             }
@@ -67,7 +72,7 @@ class RouteSimulator {
         return false
     }
     
-    private func extractCoordinates(from polyline: MKPolyline) -> [CLLocationCoordinate2D] {
+    nonisolated private func extractCoordinates(from polyline: MKPolyline) -> [CLLocationCoordinate2D] {
         let pointCount = polyline.pointCount
         var coordinates = [CLLocationCoordinate2D](repeating: CLLocationCoordinate2D(), count: pointCount)
         polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: pointCount))
@@ -79,7 +84,7 @@ class RouteSimulator {
             let start = coordinates[i]
             let end = coordinates[i + 1]
             
-            let distance = calculateDistance(from: start, to: end)
+            let distance = calculateDistanceSync(from: start, to: end)
             // Add intermediate points every ~10 meters
             let steps = max(1, Int(distance / 10))
             
@@ -99,104 +104,138 @@ class RouteSimulator {
         return interpolatedCoordinates
     }
     
-    private func calculateDistance(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
+    nonisolated private func calculateDistanceSync(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
         let fromLocation = CLLocation(latitude: from.latitude, longitude: from.longitude)
         let toLocation = CLLocation(latitude: to.latitude, longitude: to.longitude)
         return fromLocation.distance(from: toLocation)
     }
     
-    func startSimulation(onLocationUpdate: @escaping (CLLocationCoordinate2D) -> Void) {
+    func startSimulation(onLocationUpdate: @escaping @Sendable (CLLocationCoordinate2D) -> Void) {
         guard hasRoute else { return }
         
-        isSimulating = true
-        currentIndex = 0
+        // Cancel any existing simulation
+        simulationTask?.cancel()
         
-        simulationTask = Task {
-            while currentIndex < routeCoordinates.count && !Task.isCancelled {
-                let coordinate = routeCoordinates[currentIndex]
-                
-                await MainActor.run {
-                    currentLocation = coordinate
-                    progress = Double(currentIndex) / Double(routeCoordinates.count - 1)
-                    onLocationUpdate(coordinate)
-                }
-                
-                // Calculate delay based on distance to next point and speed
-                if currentIndex < routeCoordinates.count - 1 {
-                    let nextCoordinate = routeCoordinates[currentIndex + 1]
-                    let distance = calculateDistance(from: coordinate, to: nextCoordinate)
-                    let delay = distance / speedMetersPerSecond
-                    
-                    try? await Task.sleep(for: .milliseconds(Int(delay * 1000)))
-                }
-                
-                currentIndex += 1
-            }
-            
-            await MainActor.run {
-                isSimulating = false
-                progress = 1.0
-            }
-        }
+        isSimulating = true
+        isPaused = false
+        currentIndex = 0
+        progress = 0.0
+        
+        runSimulation(from: 0, onLocationUpdate: onLocationUpdate)
     }
     
     func pauseSimulation() {
         simulationTask?.cancel()
         simulationTask = nil
         isSimulating = false
+        isPaused = true
+        // currentIndex and progress are preserved
     }
     
-    func resumeSimulation(onLocationUpdate: @escaping (CLLocationCoordinate2D) -> Void) {
-        guard hasRoute && currentIndex < routeCoordinates.count else { return }
+    func resumeSimulation(onLocationUpdate: @escaping @Sendable (CLLocationCoordinate2D) -> Void) {
+        guard canResume else { return }
+        
+        // Cancel any existing simulation
+        simulationTask?.cancel()
         
         isSimulating = true
+        isPaused = false
         
-        simulationTask = Task {
-            while currentIndex < routeCoordinates.count && !Task.isCancelled {
-                let coordinate = routeCoordinates[currentIndex]
+        runSimulation(from: currentIndex, onLocationUpdate: onLocationUpdate)
+    }
+    
+    private func runSimulation(from startIndex: Int, onLocationUpdate: @escaping @Sendable (CLLocationCoordinate2D) -> Void) {
+        // Capture values needed for simulation
+        let coordinates = routeCoordinates
+        let totalCount = coordinates.count
+        
+        simulationTask = Task { [weak self] in
+            var index = startIndex
+            
+            while index < totalCount && !Task.isCancelled {
+                let coordinate = coordinates[index]
                 
-                await MainActor.run {
-                    currentLocation = coordinate
-                    progress = Double(currentIndex) / Double(routeCoordinates.count - 1)
+                // Get current speed (can change during simulation)
+                let currentSpeed = await self?.speedMetersPerSecond ?? 14.0
+                
+                // Update state on main actor
+                await MainActor.run { [weak self] in
+                    self?.currentLocation = coordinate
+                    self?.progress = Double(index) / Double(max(1, totalCount - 1))
+                    self?.currentIndex = index
+                }
+                
+                // Send location update (fire and forget)
+                Task.detached {
                     onLocationUpdate(coordinate)
                 }
                 
-                if currentIndex < routeCoordinates.count - 1 {
-                    let nextCoordinate = routeCoordinates[currentIndex + 1]
-                    let distance = calculateDistance(from: coordinate, to: nextCoordinate)
-                    let delay = distance / speedMetersPerSecond
+                // Calculate delay based on distance to next point and speed
+                if index < totalCount - 1 {
+                    let nextCoordinate = coordinates[index + 1]
+                    let distance = self?.calculateDistanceSync(from: coordinate, to: nextCoordinate) ?? 10.0
+                    let delayMs = max(50, Int((distance / currentSpeed) * 1000))
                     
-                    try? await Task.sleep(for: .milliseconds(Int(delay * 1000)))
+                    try? await Task.sleep(for: .milliseconds(delayMs))
                 }
                 
-                currentIndex += 1
+                index += 1
             }
             
-            await MainActor.run {
-                isSimulating = false
-                progress = 1.0
+            await MainActor.run { [weak self] in
+                self?.isSimulating = false
+                self?.isPaused = false
+                self?.progress = 1.0
             }
         }
     }
     
+    /// Stop simulation and clear the route, but keep current location
     func stopSimulation() {
         simulationTask?.cancel()
         simulationTask = nil
         isSimulating = false
+        isPaused = false
+        
+        // Clear route but keep currentLocation as the final position
+        route = nil
+        routeCoordinates = []
+        startLocation = nil
+        endLocation = nil
         currentIndex = 0
         progress = 0.0
-        if let first = routeCoordinates.first {
-            currentLocation = first
-        }
+        // Note: currentLocation is preserved so the marker stays
     }
     
     func reset() {
-        stopSimulation()
+        simulationTask?.cancel()
+        simulationTask = nil
+        isSimulating = false
+        isPaused = false
         route = nil
         routeCoordinates = []
         startLocation = nil
         endLocation = nil
         currentLocation = nil
+        currentIndex = 0
+        progress = 0.0
+    }
+    
+    func loadFromFavorite(_ favorite: FavoriteRoute) async -> Bool {
+        // Create MKMapItems from the favorite coordinates
+        let startPlacemark = MKPlacemark(coordinate: favorite.startCoordinate)
+        let endPlacemark = MKPlacemark(coordinate: favorite.endCoordinate)
+        
+        let startItem = MKMapItem(placemark: startPlacemark)
+        startItem.name = favorite.startName
+        
+        let endItem = MKMapItem(placemark: endPlacemark)
+        endItem.name = favorite.endName
+        
+        self.startLocation = startItem
+        self.endLocation = endItem
+        
+        // Calculate the route
+        return await calculateRoute()
     }
 }
-

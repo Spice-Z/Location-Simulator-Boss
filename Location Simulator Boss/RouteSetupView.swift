@@ -10,6 +10,7 @@ import MapKit
 
 struct RouteSetupView: View {
     @Bindable var routeSimulator: RouteSimulator
+    @Bindable var favoritesManager: FavoritesManager
     var onStartRoute: () -> Void
     var onDismiss: () -> Void
     
@@ -23,6 +24,8 @@ struct RouteSetupView: View {
     @State private var showEndResults: Bool = false
     @State private var isCalculatingRoute: Bool = false
     @State private var routeError: String?
+    @State private var showSaveDialog: Bool = false
+    @State private var favoriteName: String = ""
     
     var body: some View {
         VStack(spacing: 16) {
@@ -115,6 +118,15 @@ struct RouteSetupView: View {
                 Spacer()
                 
                 if routeSimulator.hasRoute {
+                    // Save to favorites button
+                    Button(action: {
+                        favoriteName = "\(routeSimulator.startLocation?.name ?? "Start") → \(routeSimulator.endLocation?.name ?? "End")"
+                        showSaveDialog = true
+                    }) {
+                        Image(systemName: "star")
+                    }
+                    .help("Save to Favorites")
+                    
                     Button("Start Route") {
                         onStartRoute()
                     }
@@ -146,6 +158,18 @@ struct RouteSetupView: View {
         }
         .padding()
         .frame(width: 320)
+        .sheet(isPresented: $showSaveDialog) {
+            SaveFavoriteView(
+                name: $favoriteName,
+                onSave: {
+                    saveToFavorites()
+                    showSaveDialog = false
+                },
+                onCancel: {
+                    showSaveDialog = false
+                }
+            )
+        }
     }
     
     private func calculateRoute() {
@@ -162,6 +186,21 @@ struct RouteSetupView: View {
                 }
             }
         }
+    }
+    
+    private func saveToFavorites() {
+        guard let start = routeSimulator.startLocation,
+              let end = routeSimulator.endLocation else { return }
+        
+        let favorite = FavoriteRoute(
+            name: favoriteName,
+            startName: start.name ?? "Unknown",
+            startCoordinate: start.placemark.coordinate,
+            endName: end.name ?? "Unknown",
+            endCoordinate: end.placemark.coordinate
+        )
+        
+        favoritesManager.addFavorite(favorite)
     }
     
     private func formatDistance(_ meters: Double) -> String {
@@ -181,6 +220,34 @@ struct RouteSetupView: View {
         } else {
             return "\(minutes) min"
         }
+    }
+}
+
+struct SaveFavoriteView: View {
+    @Binding var name: String
+    var onSave: () -> Void
+    var onCancel: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Save to Favorites")
+                .font(.headline)
+            
+            TextField("Route name", text: $name)
+                .textFieldStyle(.roundedBorder)
+            
+            HStack {
+                Button("Cancel", action: onCancel)
+                
+                Spacer()
+                
+                Button("Save", action: onSave)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(name.isEmpty)
+            }
+        }
+        .padding()
+        .frame(width: 280)
     }
 }
 
@@ -312,8 +379,8 @@ struct LocationSearchField: View {
 #Preview {
     RouteSetupView(
         routeSimulator: RouteSimulator(),
+        favoritesManager: FavoritesManager(),
         onStartRoute: {},
         onDismiss: {}
     )
 }
-
