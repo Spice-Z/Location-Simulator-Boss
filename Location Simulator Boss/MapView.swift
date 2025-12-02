@@ -14,10 +14,7 @@ struct LocationMapView: View {
     @Bindable var favoritesManager: FavoritesManager
     var onLocationSelected: (CLLocationCoordinate2D) -> Void
     
-    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 35.6762, longitude: 139.6503), // Tokyo
-        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-    ))
+    @State private var cameraPosition: MapCameraPosition = Self.loadSavedCameraPosition()
     
     @State private var searchText: String = ""
     @State private var searchResults: [MKMapItem] = []
@@ -25,6 +22,43 @@ struct LocationMapView: View {
     @State private var showResults: Bool = false
     
     @State private var showRouteSetup: Bool = false
+    
+    // Keys for UserDefaults
+    private static let mapCenterLatKey = "mapCenterLatitude"
+    private static let mapCenterLonKey = "mapCenterLongitude"
+    private static let mapSpanLatKey = "mapSpanLatitudeDelta"
+    private static let mapSpanLonKey = "mapSpanLongitudeDelta"
+    
+    private static func loadSavedCameraPosition() -> MapCameraPosition {
+        let defaults = UserDefaults.standard
+        
+        // Check if we have saved values
+        guard defaults.object(forKey: mapCenterLatKey) != nil else {
+            // Default to Tokyo
+            return .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 35.6762, longitude: 139.6503),
+                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+            ))
+        }
+        
+        let centerLat = defaults.double(forKey: mapCenterLatKey)
+        let centerLon = defaults.double(forKey: mapCenterLonKey)
+        let spanLat = defaults.double(forKey: mapSpanLatKey)
+        let spanLon = defaults.double(forKey: mapSpanLonKey)
+        
+        return .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon),
+            span: MKCoordinateSpan(latitudeDelta: max(0.001, spanLat), longitudeDelta: max(0.001, spanLon))
+        ))
+    }
+    
+    private func saveCameraPosition(_ region: MKCoordinateRegion) {
+        let defaults = UserDefaults.standard
+        defaults.set(region.center.latitude, forKey: Self.mapCenterLatKey)
+        defaults.set(region.center.longitude, forKey: Self.mapCenterLonKey)
+        defaults.set(region.span.latitudeDelta, forKey: Self.mapSpanLatKey)
+        defaults.set(region.span.longitudeDelta, forKey: Self.mapSpanLonKey)
+    }
     
     var body: some View {
         ZStack(alignment: .top) {
@@ -73,6 +107,10 @@ struct LocationMapView: View {
                     }
                 }
                 .mapStyle(.standard)
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    // Save camera position when user stops moving the map
+                    saveCameraPosition(context.region)
+                }
                 .onTapGesture { screenPoint in
                     // Ignore taps during simulation
                     guard !routeSimulator.isSimulating else { return }
