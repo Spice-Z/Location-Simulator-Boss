@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @Bindable var deviceManager: DeviceManager
@@ -13,10 +14,13 @@ struct SidebarView: View {
     var onSelectFavorite: (FavoriteRoute) -> Void
     var onEditFavorite: (FavoriteRoute) -> Void
     
+    @State private var showImportError = false
+    @State private var importErrorMessage = ""
+    
     var body: some View {
         List {
             // Favorite Routes Section
-            Section("Favorite Routes") {
+            Section {
                 if favoritesManager.favoriteRoutes.isEmpty {
                     Text("No saved routes")
                         .foregroundStyle(.secondary)
@@ -33,6 +37,12 @@ struct SidebarView: View {
                                 Label("Edit Route", systemImage: "pencil")
                             }
                             
+                            Button {
+                                exportRoute(route)
+                            } label: {
+                                Label("Export Route", systemImage: "square.and.arrow.up")
+                            }
+                            
                             Divider()
                             
                             Button(role: .destructive) {
@@ -45,6 +55,17 @@ struct SidebarView: View {
                     .onDelete { offsets in
                         favoritesManager.removeFavorite(at: offsets)
                     }
+                }
+            } header: {
+                HStack {
+                    Text("Favorite Routes")
+                    Spacer()
+                    Button(action: importRoute) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Import Route")
                 }
             }
             
@@ -88,6 +109,66 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .alert("Import Error", isPresented: $showImportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(importErrorMessage)
+        }
+    }
+    
+    private func exportRoute(_ route: FavoriteRoute) {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.json]
+        savePanel.nameFieldStringValue = "\(route.name).json"
+        savePanel.title = "Export Route"
+        savePanel.message = "Choose where to save the route"
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                do {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    let data = try encoder.encode(route)
+                    try data.write(to: url)
+                } catch {
+                    print("Export error: \(error)")
+                }
+            }
+        }
+    }
+    
+    private func importRoute() {
+        let openPanel = NSOpenPanel()
+        openPanel.allowedContentTypes = [.json]
+        openPanel.allowsMultipleSelection = true
+        openPanel.title = "Import Route"
+        openPanel.message = "Select route file(s) to import"
+        
+        openPanel.begin { response in
+            if response == .OK {
+                for url in openPanel.urls {
+                    do {
+                        let data = try Data(contentsOf: url)
+                        let decoder = JSONDecoder()
+                        let route = try decoder.decode(FavoriteRoute.self, from: data)
+                        
+                        // Create a new route with a new ID to avoid conflicts
+                        let importedRoute = FavoriteRoute(
+                            name: route.name,
+                            startName: route.startName,
+                            startCoordinate: route.startCoordinate,
+                            endName: route.endName,
+                            endCoordinate: route.endCoordinate,
+                            waypoints: route.waypoints
+                        )
+                        favoritesManager.addFavorite(importedRoute)
+                    } catch {
+                        importErrorMessage = "Failed to import \(url.lastPathComponent): \(error.localizedDescription)"
+                        showImportError = true
+                    }
+                }
+            }
+        }
     }
 }
 
